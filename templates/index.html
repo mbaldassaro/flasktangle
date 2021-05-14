@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}Networker{% endblock %}
+
+{% block content %}
+
+<div class="container">
+  <div class="jumbotron" style="background-color:lightgray">
+    <h2>Networker</h2>
+    <p>Simple Link Checker Call Test</p>
+    </div>
+  </div>
+
+  <div class="">
+    <form method="POST" action="{{ url_for('linkcheck')}}">
+        <p>Enter CrowdTangle API <input type="text" name="token">
+	<p>Enter Link <input type="text" name="getlink">
+      <button type="submit" class="btn btn-primary">Get Shares</button></p>
+    </form>
+  </div>
+{% endblock %}
+
