@@ -63,7 +63,7 @@ def export():
         batch = prep_batch(data=call, type=type, minsize=0, listname=listname)
         #return render_template('results.html', output = shares)
         resp = make_response(df2.to_csv(index=False))
-        resp.headers["Content-Disposition"] = "attachment; filename=export.csv"
+        resp.headers["Content-Disposition"] = "attachment; filename=" + listname + "_" + type + ".csv"
         resp.headers["Content-Type"] = "text/csv"
         return resp
 
