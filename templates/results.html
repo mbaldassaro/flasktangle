@@ -10,8 +10,32 @@
     <p>Linkchecker output</p>
     </div>
   </div>
-
+  <div class="">
+    <form method="POST" action="{{ url_for('export')}}">
+        <b>Export for Batch Upload to CrowdTangle</b>
+        <p>Enter List Type</p><!--<input type="text" name="type">-->
+        <input type="radio" name="options" id="option1" value="pages"> Pages </input><br>
+        <input type="radio" name="options" id="option2" value="groups"> Groups </input><br>
+        <p>Enter List Name <input type="text" name="listname">
+          <br>
+      <button type="submit" class="btn btn-primary">Export</button></p>
+    </form>
+  </div>
   <div>
-    <p>Link: {{output}}</p>
+    <table>
+      <tr>
+        {% for column in columns %}
+        <th> {{ column }} </th>
+        {% endfor %}
+      </tr>
+        {% for row in values %}
+      <tr>
+        {% for cell in row %}
+        <td>{{ cell }}</td>
+        {% endfor %}
+      </tr>
+        {% endfor %}
+    </table>
+  <!--<p>Link: {{output}}</p>-->
   </div>
 {% endblock %}
