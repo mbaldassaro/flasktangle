@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Networker{% endblock %}
+
+{% block content %}
+
+    <form method="POST" action="{{ url_for('mport')}}" enctype="multipart/form-data">
+      <p><input type="file" name="file"></p>
+      <p><input type="submit" value="Submit"></p>
+    </form>
+    <div>
+      <table>
+        <tr>
+          {% for column in columns %}
+          <th> {{ column }} </th>
+          {% endfor %}
+        </tr>
+          {% for row in values %}
+        <tr>
+          {% for cell in row %}
+          <td>{{ cell }}</td>
+          {% endfor %}
+        </tr>
+          {% endfor %}
+      </table>
+    <!--<p>Link: {{output}}</p>-->
+    </div>
+{% endblock %}

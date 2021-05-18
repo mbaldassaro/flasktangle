@@ -1,15 +1,9 @@
-{% extends "bootstrap/base.html" %}
+{% extends "base.html" %}
 
 {% block title %}Networker{% endblock %}
 
 {% block content %}
 
-<div class="container">
-  <div class="jumbotron" style="background-color:lightgray">
-    <h2>Networker</h2>
-    <p>Linkchecker output</p>
-    </div>
-  </div>
   <div class="">
     <form method="POST" action="{{ url_for('export')}}">
         <b>Export for Batch Upload to CrowdTangle</b>
