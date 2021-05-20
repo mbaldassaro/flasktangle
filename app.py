@@ -12,9 +12,13 @@ from networkx.algorithms import community
 from matplotlib.figure import Figure
 from io import BytesIO
 import base64
+from rq import Queue
+from rq.job import Job
+from worker import conn
 
 app = Flask(__name__)
 Bootstrap(app)
+q = Queue(connection=conn)
 
 def get_links(token, link, platforms='facebook', count=1000):
     api_url_base = "https://api.crowdtangle.com/links?token="
@@ -216,7 +220,7 @@ def communityselect():
         temp = pd.DataFrame(communities_detected[int(comid)], columns=['Name'])
         global temp_posts
         temp_posts = data1.loc[data1['Name'].isin(temp['Name'])]
-        temp_groups = temp_posts.groupby(['Name']).size().to_frame().reset_index().sort_values(by=0, ascending=False)
+        temp_groups = q.enqueue(temp_posts.groupby(['Name']).size().to_frame().reset_index().sort_values(by=0, ascending=False), result_ttl=5000)
         temp_groups = temp_groups.rename(columns={0: 'posts'}).reset_index(drop=True)
         temp_groups = pd.DataFrame(temp_groups)
         temp_groups = temp_groups[['Name', 'posts']]
