@@ -219,8 +219,8 @@ def communityselect():
         comid = request.form['comid']
         temp = pd.DataFrame(communities_detected[int(comid)], columns=['Name'])
         global temp_posts
-        temp_posts = data1.loc[data1['Name'].isin(temp['Name'])]
-        temp_groups = q.enqueue(temp_posts.groupby(['Name']).size().to_frame().reset_index().sort_values(by=0, ascending=False), result_ttl=5000)
+        temp_posts = q.enqueue(data1.loc[data1['Name'].isin(temp['Name'])], result_ttl=5000)
+        temp_groups = temp_posts.groupby(['Name']).size().to_frame().reset_index().sort_values(by=0, ascending=False)
         temp_groups = temp_groups.rename(columns={0: 'posts'}).reset_index(drop=True)
         temp_groups = pd.DataFrame(temp_groups)
         temp_groups = temp_groups[['Name', 'posts']]
