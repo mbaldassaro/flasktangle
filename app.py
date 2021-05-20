@@ -195,14 +195,19 @@ def snagraph():
 def communitydetect():
     prepsna = prep_sna_group(data1)
     snaweight = sna_weight(prepsna)
+    global G
     G = nx.from_pandas_edgelist(snaweight, source='source', target='Name', edge_attr=True)
+    return render_template('communitydetect.html')
+
+@app.route("/communitydetected", methods=['GET', 'POST'])
+def communitydetected():
     communities_generator = community.girvan_newman(G)
     top_level_communities = next(communities_generator)
     next_level_communities = next(communities_generator)
     global communities_detected
     communities_detected = sorted(map(sorted, next_level_communities))
     comms = len(communities_detected)
-    return render_template('communitydetect.html', comms = comms)
+    return render_template('communitydetected.html', comms = comms)
 
 @app.route("/communityselect", methods=['GET', 'POST'])
 def communityselect():
