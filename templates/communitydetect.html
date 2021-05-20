@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Networker{% endblock %}
+
+{% block content %}
+
+<div>
+  <p>{{ comms }} communities detected</p>
+  <form method="POST" action="{{ url_for('communityselect')}}">
+  <p>Enter Community Number to View (starting with 0)  <input type="number" name="comid">
+    <button type="submit" class="btn btn-primary">Get Community</button></p>
+  </form>
+  <table>
+    <tr>
+      {% for column in columns %}
+      <th> {{ column }} </th>
+      {% endfor %}
+    </tr>
+      {% for row in values %}
+    <tr>
+      {% for cell in row %}
+      <td>{{ cell }}</td>
+      {% endfor %}
+    </tr>
+      {% endfor %}
+  </table>
+<!--<p>Link: {{output}}</p>-->
+</div>
+{% endblock %}

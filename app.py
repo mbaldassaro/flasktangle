@@ -1,4 +1,4 @@
-from flask import Flask, render_template, url_for, request, make_response, flash
+from flask import Flask, render_template, url_for, request, make_response, flash, send_file
 from flask_bootstrap import Bootstrap
 import pandas as pd
 import numpy as np
@@ -7,12 +7,14 @@ import os
 import json
 import csv
 from urllib.parse import urlsplit
+import networkx as nx
+from networkx.algorithms import community
+from matplotlib.figure import Figure
+from io import BytesIO
+import base64
 
 app = Flask(__name__)
 Bootstrap(app)
-# Upload folder
-UPLOAD_FOLDER = 'static/files'
-app.config['UPLOAD_FOLDER'] =  UPLOAD_FOLDER
 
 def get_links(token, link, platforms='facebook', count=1000):
     api_url_base = "https://api.crowdtangle.com/links?token="
@@ -70,6 +72,31 @@ def prep_sna_group(data):
     #return the final cleaned table
     return data_sub
 
+def sna_weight(data):
+    pairs = data[['Name','target','source']]
+    pairs = pairs[pd.notnull(pairs['source'])]
+    pairs_index = pairs[pairs['target'] == pairs['source']].index
+    pairs.drop(pairs_index, inplace=True)
+    pairs_weight = pd.DataFrame(pairs.groupby(['Name', 'target', 'source']).size().reset_index())
+    pairs_weight = pairs_weight.rename(columns={0: 'weight'}).reset_index(drop=True)
+    global pairs_weight_all
+    pairs_weight_all = pairs_weight.sort_values(by='weight', ascending=False).reset_index(drop=True)
+    return pairs_weight_all
+
+def prep_batch_from_posts(data, minsize=0, listname='null'):
+    df = data
+    #remove everything starting w/permalink and after
+    df['URL'] = df['URL'].replace(to_replace=r"/permalink.*", value='/', regex=True)
+    df = df.groupby(['Name', 'URL']).size().to_frame().reset_index().sort_values(by=0, ascending=False)
+    #if type == 'pages':
+    #    df1 = df.loc[((df['accountType'] == 'facebook_page') & (df[0] > minsize))]
+    #else: #need to fix the else to set to 'groups' as an option -- not a big deal right now
+    #    df1 = df.loc[((df['accountType'] == 'facebook_group') & (df[0] > minsize))]
+    df['List'] = listname
+    df = df.rename(columns={"URL": "Page or Account URL"}).reset_index(drop=True)
+    df = df.drop_duplicates()
+    return df[['Page or Account URL', 'List']]
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -99,8 +126,8 @@ def export():
         resp.headers["Content-Type"] = "text/csv"
         return resp
 
-@app.route('/community')
-def community():
+@app.route('/communities')
+def communities():
     return render_template('community.html')
 
 @app.route("/import", methods=['POST'])
@@ -118,21 +145,92 @@ def mport():
       values = list(data1.values)
       return render_template('analyze.html', columns = columns, values = values)
 
-@app.route("/analyze", methods=['POST'])
-def analyze():
+@app.route("/userinfluence", methods=['POST'])
+def userinfluence():
     prepsna = prep_sna_group(data1)
-    pairs = prepsna[['Name','target','source']]
-    pairs = pairs[pd.notnull(pairs['source'])]
-    pairs_index = pairs[pairs['target'] == pairs['source']].index
-    pairs.drop(pairs_index, inplace=True)
-    pairs_weight = pd.DataFrame(pairs.groupby(['Name', 'target', 'source']).size().reset_index())
-    pairs_weight = pairs_weight.rename(columns={0: 'weight'}).reset_index(drop=True)
-    pairs_weight = pairs_weight.sort_values(by='weight', ascending=False).reset_index(drop=True)
-    weight = pairs_weight.groupby('source').sum().sort_values(by='weight', ascending=False).reset_index().head(50)
+    snaweight = sna_weight(prepsna)
+    weight = snaweight.groupby('source').sum().sort_values(by='weight', ascending=False).reset_index().head(50)
     weight = weight[['source', 'weight']]
     columns = list(weight.columns.values)
     values = list(weight.values)
-    return render_template('graph.html', columns = columns, values = values)
+    return render_template('userinfluence.html', columns = columns, values = values)
+
+@app.route("/sna", methods=['POST'])
+def sna():
+    return render_template('graph.html')
+
+@app.route("/snagraph", methods=['POST'])
+def snagraph():
+    prepsna = prep_sna_group(data1)
+    snaweight = sna_weight(prepsna)
+    weight_net = snaweight[snaweight['source'].isin(snaweight['source'].value_counts()[snaweight['source'].value_counts() > 1].index)]
+    weight_net = snaweight[snaweight['weight'] > 1]
+    groups = list(weight_net['Name'].unique())
+    shared = list(weight_net['source'].unique())
+    node_labels = dict(zip(groups, groups))
+    shared_labels = dict(zip(shared, shared))
+    G = nx.from_pandas_edgelist(weight_net, source='source', target='Name', edge_attr=True)
+    layout = nx.spring_layout(G, k=10/G.order())
+    dc = nx.degree_centrality(G)
+    hi_degree_targets = [k for k, v in dc.items() if k in groups and v > 0.03]
+    node_labels_top = dict(zip(hi_degree_targets, hi_degree_targets))
+    #color based on degree size leveraging nx spectrum
+    node_color = [20000.0 * G.degree(v) for v in G]
+    #same with size
+    node_size =  [v * 10000 for v in dc.values()]
+    #set plotting area
+    fig = Figure(figsize=(25,25))
+    #plot nodes & edges
+    nx.draw_networkx_nodes(G, layout, node_size=node_size, node_color=node_color)
+    nx.draw_networkx_edges(G, layout, width=1, alpha=0.5, edge_color='gray', style='dashed')
+    #add labels for just the high degree targets
+    nx.draw_networkx_labels(G, layout, labels=node_labels_top, font_size=15)
+    img = BytesIO()
+    fig.savefig(img)
+    #img.seek(0)
+    #data = base64.b64encode(img.getbuffer()).decode("ascii")
+    return send_file(img, mimetype='image/png')
+
+@app.route("/communitydetect", methods=['GET', 'POST'])
+def communitydetect():
+    prepsna = prep_sna_group(data1)
+    snaweight = sna_weight(prepsna)
+    G = nx.from_pandas_edgelist(snaweight, source='source', target='Name', edge_attr=True)
+    communities_generator = community.girvan_newman(G)
+    top_level_communities = next(communities_generator)
+    next_level_communities = next(communities_generator)
+    global communities_detected
+    communities_detected = sorted(map(sorted, next_level_communities))
+    comms = len(communities_detected)
+    return render_template('communitydetect.html', comms = comms)
+
+@app.route("/communityselect", methods=['GET', 'POST'])
+def communityselect():
+    if request.method == 'POST':
+        comid = request.form['comid']
+        temp = pd.DataFrame(communities_detected[int(comid)], columns=['Name'])
+        global temp_posts
+        temp_posts = data1.loc[data1['Name'].isin(temp['Name'])]
+        temp_groups = temp_posts.groupby(['Name']).size().to_frame().reset_index().sort_values(by=0, ascending=False)
+        temp_groups = temp_groups.rename(columns={0: 'posts'}).reset_index(drop=True)
+        temp_groups = pd.DataFrame(temp_groups)
+        temp_groups = temp_groups[['Name', 'posts']]
+        #comms = len(communities_detected)
+        columns = list(temp_groups.columns.values)
+        values = list(temp_groups.values)
+        return render_template('communityselect.html', columns = columns, values = values, comid = comid)
+
+@app.route('/exportcom', methods=['POST'])
+def exportcom():
+    if request.method == 'POST':
+        #type = request.form['options']
+        listname = request.form['listname']
+        export_groups = data1[data1['Name'].isin(temp_posts['Name'])]
+        batch = prep_batch_from_posts(data=export_groups, minsize=0, listname=listname)
+        resp = make_response(batch.to_csv(index=False))
+        resp.headers["Content-Disposition"] = "attachment; filename=" + listname + ".csv"
+        resp.headers["Content-Type"] = "text/csv"
+        return resp
 
 if __name__ == '__main__':
     app.run(debug=True)
