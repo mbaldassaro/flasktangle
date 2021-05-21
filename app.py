@@ -101,6 +101,17 @@ def prep_batch_from_posts(data, minsize=0, listname='null'):
     df = df.drop_duplicates()
     return df[['Page or Account URL', 'List']]
 
+def communities_getter(data1):
+    prepsna = prep_sna_group(data1)
+    snaweight = sna_weight(prepsna)
+    G = nx.from_pandas_edgelist(snaweight, source='source', target='Name', edge_attr=True)
+    communities_generator = community.girvan_newman(G)
+    top_level_communities = next(communities_generator)
+    next_level_communities = next(communities_generator)
+    global communities_detected
+    communities_detected = sorted(map(sorted, next_level_communities))
+    return communities_detected
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -195,31 +206,25 @@ def snagraph():
     #data = base64.b64encode(img.getbuffer()).decode("ascii")
     return send_file(img, mimetype='image/png')
 
-@app.route("/communitydetect", methods=['GET', 'POST'])
-def communitydetect():
-    prepsna = prep_sna_group(data1)
-    snaweight = sna_weight(prepsna)
-    global G
-    G = nx.from_pandas_edgelist(snaweight, source='source', target='Name', edge_attr=True)
-    return render_template('communitydetect.html')
-
 @app.route("/communitydetected", methods=['GET', 'POST'])
 def communitydetected():
-    communities_generator = community.girvan_newman(G)
-    top_level_communities = next(communities_generator)
-    next_level_communities = next(communities_generator)
-    global communities_detected
-    communities_detected = sorted(map(sorted, next_level_communities))
-    comms = len(communities_detected)
-    return render_template('communitydetected.html', comms = comms)
+    from app import communities_getter
+    global job
+    job = q.enqueue_call(func=communities_getter, args=(data1,))#, result_ttl=5000)
+    return render_template('communitydetected.html')#, comms=comms)
 
 @app.route("/communityselect", methods=['GET', 'POST'])
 def communityselect():
+    job_1 = Job.fetch(job.id, connection=conn)
+    if job_1.is_finished:
+        communities_detected = job_1.result
+    else:
+        print('boo')
     if request.method == 'POST':
         comid = request.form['comid']
         temp = pd.DataFrame(communities_detected[int(comid)], columns=['Name'])
         global temp_posts
-        temp_posts = q.enqueue(data1.loc[data1['Name'].isin(temp['Name'])], result_ttl=5000)
+        temp_posts = data1.loc[data1['Name'].isin(temp['Name'])]
         temp_groups = temp_posts.groupby(['Name']).size().to_frame().reset_index().sort_values(by=0, ascending=False)
         temp_groups = temp_groups.rename(columns={0: 'posts'}).reset_index(drop=True)
         temp_groups = pd.DataFrame(temp_groups)
