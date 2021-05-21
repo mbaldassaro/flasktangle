@@ -1,4 +1,4 @@
-from flask import Flask, render_template, url_for, request, make_response, flash, send_file
+from flask import Flask, render_template, url_for, request, make_response, session, flash, send_file
 from flask_bootstrap import Bootstrap
 import pandas as pd
 import numpy as np
@@ -15,9 +15,11 @@ import base64
 from rq import Queue
 from rq.job import Job
 from worker import conn
+import time
 
 app = Flask(__name__)
 Bootstrap(app)
+app.secret_key = os.urandom(24)
 q = Queue(connection=conn)
 
 def get_links(token, link, platforms='facebook', count=1000):
@@ -210,16 +212,23 @@ def snagraph():
 def communitydetected():
     from app import communities_getter
     global job
-    job = q.enqueue_call(func=communities_getter, args=(data1,))#, result_ttl=5000)
-    return render_template('communitydetected.html')#, comms=comms)
+    job = q.enqueue_call(func=communities_getter, args=(data1,), result_ttl=5000)
+    while not job.is_finished:
+        job.get_status()
+        time.sleep(5)
+        #comms = job.get_status()
+    result = Job.fetch(job.id, connection=conn)
+    comms = len(result.result)
+    return render_template('communitydetected.html', comms=comms)
 
 @app.route("/communityselect", methods=['GET', 'POST'])
 def communityselect():
-    job_1 = Job.fetch(job.id, connection=conn)
-    if job_1.is_finished:
-        communities_detected = job_1.result
+    result = Job.fetch(job.id, connection=conn)
+    if result.is_finished:
+        communities_detected = result.result
     else:
         print('boo')
+    #the above all works, but need to add 'loading page' that redirects when finished
     if request.method == 'POST':
         comid = request.form['comid']
         temp = pd.DataFrame(communities_detected[int(comid)], columns=['Name'])
