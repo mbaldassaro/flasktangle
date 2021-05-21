@@ -9,7 +9,7 @@ import csv
 from urllib.parse import urlsplit
 import networkx as nx
 from networkx.algorithms import community
-#from matplotlib.figure import Figure
+from matplotlib.figure import Figure
 from io import BytesIO
 import base64
 from rq import Queue
@@ -212,13 +212,15 @@ def snagraph():
 def communitydetected():
     from app import communities_getter
     global job
-    job = q.enqueue_call(func=communities_getter, args=(data1,), result_ttl=50000)
+    job = q.enqueue_call(func=communities_getter, args=(data1,), result_ttl=5000)
     while not job.is_finished:
         job.get_status()
         time.sleep(5)
-        #comms = job.get_status()
+        print(job.get_status())
     result = Job.fetch(job.id, connection=conn)
-    comms = len(result.result)
+    if result.is_finished:
+        comms = len(result.result)
+    else: comms = "0"
     return render_template('communitydetected.html', comms=comms)
 
 @app.route("/communityselect", methods=['GET', 'POST'])
@@ -241,7 +243,7 @@ def communityselect():
         #comms = len(communities_detected)
         columns = list(temp_groups.columns.values)
         values = list(temp_groups.values)
-        return render_template('communityselect.html', columns = columns, values = values, comid = comid)
+        return render_template('communityselect.html', columns = columns, values = values, comid = comid, comms=comms)
 
 @app.route('/exportcom', methods=['POST'])
 def exportcom():
