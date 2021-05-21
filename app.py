@@ -212,7 +212,7 @@ def snagraph():
 def communitydetected():
     from app import communities_getter
     global job
-    job = q.enqueue_call(func=communities_getter, args=(data1,), result_ttl=5000)
+    job = q.enqueue_call(func=communities_getter, args=(data1,), result_ttl=50000)
     while not job.is_finished:
         job.get_status()
         time.sleep(5)
