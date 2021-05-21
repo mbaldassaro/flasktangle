@@ -216,7 +216,7 @@ def communitydetected():
     while not job.is_finished:
         job.get_status()
         time.sleep(5)
-        print(job.get_status())
+        #print(job.get_status())
     result = Job.fetch(job.id, connection=conn)
     if result.is_finished:
         comms = len(result.result)
