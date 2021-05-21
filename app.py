@@ -1,4 +1,4 @@
-from flask import Flask, render_template, url_for, request, make_response, session, flash, send_file
+from flask import Flask, render_template, url_for, request, make_response, flash, send_file
 from flask_bootstrap import Bootstrap
 import pandas as pd
 import numpy as np
@@ -19,7 +19,7 @@ import time
 
 app = Flask(__name__)
 Bootstrap(app)
-app.secret_key = os.urandom(24)
+#app.secret_key = os.urandom(24)
 q = Queue(connection=conn)
 
 def get_links(token, link, platforms='facebook', count=1000):
