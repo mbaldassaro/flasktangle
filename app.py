@@ -9,7 +9,7 @@ import csv
 from urllib.parse import urlsplit
 import networkx as nx
 from networkx.algorithms import community
-from matplotlib.figure import Figure
+#from matplotlib.figure import Figure
 from io import BytesIO
 import base64
 from rq import Queue
