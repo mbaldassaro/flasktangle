@@ -5,6 +5,11 @@
 {% block content %}
 
 <div>
-  <p>Status: {{ status }}</p>
+  <div class="">
+    <form method="POST" action="{{ url_for('communitydetected')}}">
+        <button type="submit" class="btn btn-primary">Run Community Detection</button></p>
+        <p>Note: Community Detection Takes Time - You will be redirected when results are ready</p>
+    </form>
+  </div>
 </div>
 {% endblock %}

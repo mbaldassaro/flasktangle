@@ -12,7 +12,7 @@ from networkx.algorithms import community
 from matplotlib.figure import Figure
 from io import BytesIO
 import base64
-from rq import Queue
+from rq import Queue, get_current_job
 from rq.job import Job
 from worker import conn
 import time
@@ -103,10 +103,15 @@ def prep_batch_from_posts(data, minsize=0, listname='null'):
     df = df.drop_duplicates()
     return df[['Page or Account URL', 'List']]
 
-def communities_getter(data1):
+def socialnet(data1):
     prepsna = prep_sna_group(data1)
     snaweight = sna_weight(prepsna)
+    global G
     G = nx.from_pandas_edgelist(snaweight, source='source', target='Name', edge_attr=True)
+    return G
+    #return G
+
+def communities_getter(G):
     communities_generator = community.girvan_newman(G)
     top_level_communities = next(communities_generator)
     next_level_communities = next(communities_generator)
@@ -172,9 +177,8 @@ def userinfluence():
     values = list(weight.values)
     return render_template('userinfluence.html', columns = columns, values = values)
 
-@app.route("/sna", methods=['POST'])
-def sna():
-    return render_template('graph.html')
+#def sna():
+    #return render_template('graph.html')
 
 @app.route("/snagraph", methods=['POST'])
 def snagraph():
@@ -208,11 +212,17 @@ def snagraph():
     #data = base64.b64encode(img.getbuffer()).decode("ascii")
     return send_file(img, mimetype='image/png')
 
+@app.route("/sna", methods=['POST'])
+def sna():
+    global G
+    G = socialnet(data1)
+    return render_template('communitysearching.html')
+
 @app.route("/communitydetected", methods=['GET', 'POST'])
 def communitydetected():
     from app import communities_getter
     global job
-    job = q.enqueue_call(func=communities_getter, args=(data1,), result_ttl=5000)
+    job = q.enqueue_call(func=communities_getter, args=(G,), result_ttl=5000)
     while not job.is_finished:
         job.get_status()
         time.sleep(5)
@@ -243,7 +253,7 @@ def communityselect():
         #comms = len(communities_detected)
         columns = list(temp_groups.columns.values)
         values = list(temp_groups.values)
-        return render_template('communityselect.html', columns = columns, values = values, comid = comid, comms=comms)
+        return render_template('communityselect.html', columns = columns, values = values, comid = comid)
 
 @app.route('/exportcom', methods=['POST'])
 def exportcom():
