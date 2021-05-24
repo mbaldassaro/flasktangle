@@ -66,6 +66,15 @@ def prep_sna_group(data):
     data_sub = data_sub[pd.notnull(data_sub['source'])].reset_index(drop=True)
     return data_sub
 
+def prep_sna_domain(data):
+    data_sub = data[data['Link'] != 0]
+    data_sub = data_sub[~data_sub['Link'].str.contains(r"facebook.com")]
+    data_sub['protocol2'], data_sub['domain2'], data_sub['path2'], data_sub['query2'], data_sub['fragment2'] = zip(*[urlsplit(i) for i in data_sub['Link']])
+    data_sub['target'] = data_sub['Facebook Id']
+    data_sub['source'] = data_sub['domain2']
+    data_sub = data_sub[pd.notnull(data_sub['source'])].reset_index(drop=True)
+    return data_sub
+
 def sna_weight(data):
     pairs = data[['Name','target','source']]
     pairs = pairs[pd.notnull(pairs['source'])]
@@ -161,8 +170,15 @@ def userinfluence():
     values = list(weight.values)
     return render_template('userinfluence.html', columns = columns, values = values)
 
-#def sna():
-    #return render_template('graph.html')
+@app.route("/domaininfluence", methods=['POST'])
+def domaininfluence():
+    prepsna = prep_sna_domain(data1)
+    snaweight = sna_weight(prepsna)
+    weight = snaweight.groupby('source').sum().sort_values(by='weight', ascending=False).reset_index().head(50)
+    weight = weight[['source', 'weight']]
+    columns = list(weight.columns.values)
+    values = list(weight.values)
+    return render_template('domaininfluence.html', columns = columns, values = values)
 
 @app.route("/snagraph", methods=['POST'])
 def snagraph():
