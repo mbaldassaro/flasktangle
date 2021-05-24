@@ -2,6 +2,23 @@
 
 {% block title %}Networker{% endblock %}
 
+{% block head %}
+    {{super()}}
+    <head prefix="og:http://ogp.me/ns# fb:http://ogp.me/ns/fb# website:http://ogp.me/ns/wesbite">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="An initiative of Democracy International to collect, open, visualize and analyze Bangladesh election data on an ongoing basis">
+    <meta property='og:url' content="http://www.bangladata.com">
+    <meta property='og:title' content="Bangladata">
+    <meta property='og:description' content=""An initiative of Democracy International to collect, open, visualize and analyze Bangladesh election data on an ongoing basis"">
+    <!--<meta property='og:image' content="{{ url_for('static', filename='img/defaultimg.png' )}}">-->
+    <link rel="shortcut icon" href ="{{ url_for('static', filename='img/favicon.ico' )}}">
+    <link rel="stylesheet" type= "text/css" href= "#">
+<link rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css?family=Lato">
+    <link rel="stylesheet" type="text/css" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+
+{% endblock %}
+
 {% block navbar %}
 <div class="navbar navbar-inverse" role="navigation">
     <div class="container">
@@ -14,31 +31,26 @@
 	    </button>
 	    <a class="navbar-brand" href="/">Networker</a>
 	</div>
-	<div class="navbar-collapse collapse">
-	    <ul class="nav navbar-nav">
-		<li><a href="/test">About</a></li>
+  <div class="navbar-collapse collapse navbar-ex1-collapse">
+	    <ul class="nav navbar-nav navbar-left">
+        <li class="dropdown"><a class="dropdown-toggle" data-toggle="dropdown" href="#">Analysis Tools<span class="caret"></span></a>
+          <ul class="dropdown-menu">
+          <li><a href="{{ url_for('index') }}">Link Checker</a></li>
+          <li><a href="{{ url_for('communities') }}">Community Detection</a></li>
+		      <!--<li><a href="#">Violence</a></li>
+          <li><a href="#">Coverage</a></li>-->
+        </ul>
+		<li><a href="#" data-toggle="modal"
+data-target="#aboutModal" style="outline-width:0;">About</a></li>
+		<li><a href="#" data-toggle="modal"
+data-target="#dataModal" style="outline-width:0;">Data</a></li>
 	    </ul>
-	</div>
-    </div>
-</div>
-<div class="navbar-default sidebar" role="navigation">
-  <div class="sidebar-nav navbar-collapse">
-    <ul class="metismenu" id="menu">
-      <li class="active">
-        <a href='#' aria-expanded="false">Menu 1</a>
-        <ul aria-expanded="true">
-          <li>dummy</li>
-          <li>dummy</li>
-        </ul>
-      </li>
-      <li>
-        <a href="#" aria-expanded="false">Menu 2</a>
-        <ul aria-expanded="false">
-          <li>dummy</li>
-          <li>dummy</li>
-        </ul>
-      </li>
-    </ul>
+      <ul class="nav navbar-nav navbar-right">
+        <!--<a class="pull-right" href="/en"><img class="img-responsive" id="EN" src="{{ url_for('static', filename='img/usflag.png' )}}"></a> <!--style="width: 2.2em; height: 2.55em; margin-left: 1em; margin-top: 0.48em;"-->
+        <!--<a class="pull-right" href="/logo"><img class="img-responsive" id="BD" src="{{ url_for('static', filename='img/bdflag.png' )}}"></a> --> <!--style="width: 2em; height: 1.5em; margin-top: 1em;"-->
+        <!--<a class="pull-right" href="#" target="_blank"><img class="img-responsive" id="logo" src="{{ url_for('static', filename='img/dilogo.png' )}}"></a>-->
+      </ul>
+  </div>
   </div>
 </div>
 {% endblock %}
