@@ -8,7 +8,9 @@ import json
 import csv
 from urllib.parse import urlsplit
 import networkx as nx
-from networkx.algorithms import community
+#from networkx.algorithms import community
+#pip3 install python-louvain
+#import community as community_louvain
 from matplotlib.figure import Figure
 from io import BytesIO
 import base64
@@ -16,6 +18,7 @@ from rq import Queue, get_current_job
 from rq.job import Job
 from worker import conn
 import time
+import community as community_louvain
 
 app = Flask(__name__)
 Bootstrap(app)
@@ -49,33 +52,18 @@ def prep_batch(data, type='pages', minsize=0, listname='null'):
     #return df1[['Page or Account URL', 'List']]
 
 def prep_sna_group(data):
-    #remove rows where there is no link  value
     data_sub = data[data['Link'] != 0]
-    #remove rows where link contains 'photo.php' - there is no user id handle in those links
     data_sub = data_sub[~data_sub['Link'].str.contains(r"photo.php")]
-    #find + remove '/groups' in link
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"/groups", value='', regex=True)
-    #find + remove '/photos' in link
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"/photos", value='', regex=True)
-    #find + remove "?" in link
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"\?", value='', regex=True)
-    #find + remove "fbid=" in link
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"fbid=", value='', regex=True)
-    #find + remove '&" + everything afterwards in link
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"\&.*", value='/', regex=True)
-    #parse cleaned up link url to separate components into different columns
     data_sub['protocol2'], data_sub['domain2'], data_sub['path2'], data_sub['query2'], data_sub['fragment2'] = zip(*[urlsplit(i) for i in data_sub['Link']])
-    #keep only rows where domain is facebook.com
     data_sub = data_sub[data_sub['domain2'] == 'www.facebook.com']
-    #change Facebook Id value to 'target' (this is id of the group where post was shared)
     data_sub['target'] = data_sub['Facebook Id']
-    #change path2 value to 'source' (this is the id of the user that targeted the group)
     data_sub['source'] = data_sub['path2'].str.extract(r'/\s*([^\/]*)\s*\/', expand=False)
-    #add column 'group' that is the same as 'Group Name'. in some functions, space btwn Group and Name causes probs
-    #data_sub['group'] = data_sub['name']
-    #remove any rows where 'source' is null -- probably caused by  find + remove error...to be examined
     data_sub = data_sub[pd.notnull(data_sub['source'])].reset_index(drop=True)
-    #return the final cleaned table
     return data_sub
 
 def sna_weight(data):
@@ -112,12 +100,8 @@ def socialnet(data1):
     #return G
 
 def communities_getter(G):
-    communities_generator = community.girvan_newman(G)
-    top_level_communities = next(communities_generator)
-    next_level_communities = next(communities_generator)
-    global communities_detected
-    communities_detected = sorted(map(sorted, next_level_communities))
-    return communities_detected
+    partition = community_louvain.best_partition(G)
+    return partition
 
 @app.route('/')
 def index():
@@ -220,30 +204,19 @@ def sna():
 
 @app.route("/communitydetected", methods=['GET', 'POST'])
 def communitydetected():
-    from app import communities_getter
-    global job
-    job = q.enqueue_call(func=communities_getter, args=(G,), result_ttl=5000)
-    while not job.is_finished:
-        job.get_status()
-        time.sleep(5)
-        #print(job.get_status())
-    result = Job.fetch(job.id, connection=conn)
-    if result.is_finished:
-        comms = len(result.result)
-    else: comms = "0"
+    partition = communities_getter(G)
+    global communities_detected
+    communities_detected = pd.DataFrame(partition.keys(), partition.values()).reset_index(level=[0])
+    communities_detected.columns = ['id', 'Name']
+    comms = communities_detected['id'].nunique()
+    #else: comms = "0"
     return render_template('communitydetected.html', comms=comms)
 
 @app.route("/communityselect", methods=['GET', 'POST'])
 def communityselect():
-    result = Job.fetch(job.id, connection=conn)
-    if result.is_finished:
-        communities_detected = result.result
-    else:
-        print('boo')
-    #the above all works, but need to add 'loading page' that redirects when finished
     if request.method == 'POST':
         comid = request.form['comid']
-        temp = pd.DataFrame(communities_detected[int(comid)], columns=['Name'])
+        temp = communities_detected.loc[communities_detected['id'] == int(comid)]
         global temp_posts
         temp_posts = data1.loc[data1['Name'].isin(temp['Name'])]
         temp_groups = temp_posts.groupby(['Name']).size().to_frame().reset_index().sort_values(by=0, ascending=False)
