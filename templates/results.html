@@ -5,6 +5,7 @@
 {% block content %}
 
   <div class="">
+    <div id="chart" class="chart"></div>
     <form method="POST" action="{{ url_for('export')}}">
         <b>Export for Batch Upload to CrowdTangle</b>
         <p>Enter List Type</p><!--<input type="text" name="type">-->
@@ -32,4 +33,11 @@
     </table>
   <!--<p>Link: {{output}}</p>-->
   </div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script type="text/javascript">
+    var graphs = {{graphJSON | safe}};
+    Plotly.plot('chart',graphs,{});
+</script>
 {% endblock %}

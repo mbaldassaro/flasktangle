@@ -3,27 +3,23 @@ from flask_bootstrap import Bootstrap
 import pandas as pd
 import numpy as np
 import requests
-import os
+#import os
 import json
 import csv
 from urllib.parse import urlsplit
 import networkx as nx
-#from networkx.algorithms import community
-#pip3 install python-louvain
-#import community as community_louvain
-from matplotlib.figure import Figure
-from io import BytesIO
-import base64
-from rq import Queue, get_current_job
-from rq.job import Job
-from worker import conn
+#from rq import Queue, get_current_job
+#from rq.job import Job
+#from worker import conn
 import time
 import community as community_louvain
+import plotly
+import plotly.express as px
 
 app = Flask(__name__)
 Bootstrap(app)
 #app.secret_key = os.urandom(24)
-q = Queue(connection=conn)
+#q = Queue(connection=conn)
 
 def get_links(token, link, platforms='facebook', count=1000):
     api_url_base = "https://api.crowdtangle.com/links?token="
@@ -124,11 +120,28 @@ def snowball():
         global call
         call = get_links(token, link=getlink)
         data = pd.DataFrame.from_dict(call['result']['posts'])
+        data = data.rename(columns={"subscriberCount": "initialSubscriberCount", "platform": "initialPlatform"})
         data = pd.concat([data.drop(['account'], axis=1), data['account'].apply(pd.Series)], axis=1)
-        shares = data.groupby(['name', 'accountType']).size().to_frame().reset_index().rename(columns={0: 'shares'}).sort_values(by='shares', ascending=False)
-        columns = list(shares.columns.values)
-        values = list(shares.values)
-    return render_template('results.html', columns = columns, values = values)
+        data = pd.concat([data.drop(['statistics'], axis=1), data['statistics'].apply(pd.Series)], axis=1)
+        data = pd.concat([data.drop(['actual'], axis=1), data['actual'].apply(pd.Series)], axis=1)
+        #shares = data.groupby(['name', 'accountType']).size().to_frame().reset_index().rename(columns={0: 'shares'}).sort_values(by='shares', ascending=False)
+        data = data.replace(np.nan,0)
+        data['date'] = pd.to_datetime(data.date)
+        data = data.sort_values(by='date')
+        data['Reach'] = data['subscriberCount'].cumsum()
+        data['Likes'] = data['likeCount'].cumsum()
+        data['Shares'] = data['shareCount'].cumsum()
+        data['Comments'] = data['commentCount'].cumsum()
+        #plot time-series
+        fig = px.scatter(data, x = 'date', y='Reach', size='subscriberCount', title="Reach", hover_name="name", hover_data=["Likes", "Shares", "Comments"])#color='platform') )
+        #fig.add_trace(go.Scatter(x=df['date'], y=df['reach']))
+        fig.update_xaxes(tickangle=45, tickfont=dict(size=8))
+        fig.update_yaxes(tickfont=dict(size=8))
+        graphJSON = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+        data_subset = data[['name', 'date', 'accountType', 'subscriberCount', 'likeCount', 'shareCount', 'commentCount']]
+        columns = list(data_subset.columns.values)
+        values = list(data_subset.values)
+    return render_template('results.html', columns = columns, values = values, graphJSON = graphJSON)
 
 @app.route('/export', methods=['POST'])
 def export():
