@@ -344,7 +344,10 @@ def snagraph():
 
     node_trace = go.Scatter(
         x=node_x, y=node_y,
-        mode='markers',
+        #mode='markers',
+        mode='markers+text',
+        textfont=dict(size=10,color='black'),
+        textposition="top right",
         hoverinfo='text',
         marker=dict(
             showscale=True,
