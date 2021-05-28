@@ -22,9 +22,12 @@ import string
 import nltk
 import nltk.corpus
 from nltk.corpus import stopwords
-stop_words = set(stopwords.words('english'))
+#stop_words = set(stopwords.words('english'))
 from nltk.tokenize import word_tokenize
 from nltk.probability import FreqDist
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer, TfidfTransformer
+import re
+import string
 
 app = Flask(__name__)
 Bootstrap(app)
