@@ -14,9 +14,11 @@
     <form method="POST" action="{{ url_for('sna')}}">
         <button type="submit" class="btn btn-primary">Run Social Network Analysis</button></p>
     </form>
-    <!--<form method="POST" action="{{ url_for('communitydetected')}}">
-        <button type="submit" class="btn btn-primary">Run Community Detection</button></p>
-        <p>Note: Community Detection Takes Time - You will be redirected when results are ready</p>-->
+    <form method="POST" action="{{ url_for('snagraph')}}">
+        <button type="submit" class="btn btn-primary">Run Coordinated Behavior Analysis</button></p>
+    </form>
+    <form method="POST" action="{{ url_for('topics')}}">
+        <button type="submit" class="btn btn-primary">Run Topic Analysis</button></p>
     </form>
   </div>
   <div>

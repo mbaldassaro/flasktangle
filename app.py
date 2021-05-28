@@ -1,9 +1,10 @@
-from flask import Flask, render_template, url_for, request, make_response, flash, send_file
+from flask import Flask, render_template, url_for, request, make_response, flash, send_file, Response
 from flask_bootstrap import Bootstrap
 import pandas as pd
 import numpy as np
 import requests
 #import os
+import io
 import json
 import csv
 from urllib.parse import urlsplit
@@ -15,6 +16,15 @@ import time
 import community as community_louvain
 import plotly
 import plotly.express as px
+import plotly.graph_objects as go
+import re
+import string
+import nltk
+import nltk.corpus
+from nltk.corpus import stopwords
+stop_words = set(stopwords.words('english'))
+from nltk.tokenize import word_tokenize
+from nltk.probability import FreqDist
 
 app = Flask(__name__)
 Bootstrap(app)
@@ -48,7 +58,8 @@ def prep_batch(data, type='pages', minsize=0, listname='null'):
     #return df1[['Page or Account URL', 'List']]
 
 def prep_sna_group(data):
-    data_sub = data[data['Link'] != 0]
+    #data_sub = data[data['Link'] != 0]
+    data_sub = data[data['Link'].notnull()]
     data_sub = data_sub[~data_sub['Link'].str.contains(r"photo.php")]
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"/groups", value='', regex=True)
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"/photos", value='', regex=True)
@@ -62,8 +73,50 @@ def prep_sna_group(data):
     data_sub = data_sub[pd.notnull(data_sub['source'])].reset_index(drop=True)
     return data_sub
 
+def prep_sna(data):
+    data_sub = data[data['Link'].notnull()]
+    data_sub = data_sub[data_sub['Link'].str.contains(r"facebook.com")]
+    data_sub = data_sub[~data_sub['Link'].str.contains(r"photo.php")]
+    data_sub['Link'] = data_sub['Link'].replace(to_replace=r"/groups", value='', regex=True)
+    #find + remove '/photos' in link
+    data_sub['Link'] = data_sub['Link'].replace(to_replace=r"/photos", value='', regex=True)
+#find + remove "?" in link
+    data_sub['Link'] = data_sub['Link'].replace(to_replace=r"\?", value='', regex=True)
+    #find + remove "fbid=" in link
+    data_sub['Link'] = data_sub['Link'].replace(to_replace=r"fbid=", value='', regex=True)
+    #find + remove '&" + everything afterwards in link
+    data_sub['Link'] = data_sub['Link'].replace(to_replace=r"\&.*", value='/', regex=True)
+    data_sub['protocol2'], data_sub['domain2'], data_sub['path2'], data_sub['query2'], data_sub['fragment2'] = zip(*[urlsplit(i) for i in data_sub['Link']])
+    data_sub['target'] = data_sub['Name']
+    data_sub['source'] = data_sub['path2'].str.extract(r'/\s*([^\/]*)\s*\/', expand=False)
+    return data_sub
+
+def pairwise_corr(data):
+    data_sub_network = data[['source', 'target']]
+    data_sub_counts = pd.DataFrame(data_sub_network.groupby(['target']).size().sort_values(ascending=False).reset_index())
+    data_sub_counts = data_sub_counts.rename(columns={0: 'n'}).reset_index(drop=True)
+    data_sub_network_counts = pd.merge(data_sub_network, data_sub_counts)
+    vector_matrix = pd.get_dummies(data_sub_network['source']).T.dot(pd.get_dummies(data_sub_network['target'])).clip(0, 1)
+    pairwise_cov_matrix = vector_matrix.cov()
+    pairwise_cor = pairwise_cov_matrix.corr(method="pearson", min_periods=5)
+    pages = list(pairwise_cov_matrix.columns)
+    pairwise_cor_matrix = pd.DataFrame(pairwise_cor, columns = pages, index = pages)
+    temp_mat = pairwise_cor_matrix[pairwise_cor_matrix.index.isin(data['Name'])]
+    temp_df = pd.DataFrame(temp_mat.T.unstack().reset_index(name='correlation').sort_values('correlation', ascending=False))
+    temp_df = temp_df.rename(columns={"level_0": 'target', "level_1": 'source'})
+    #temp_df = temp_df.sort_values(['target','correlation'], ascending=False).reset_index(drop=True)
+    temp_df = temp_df[temp_df['target'] != temp_df['source']]
+    temp_df1 = temp_df[['target', 'source']].reset_index(drop=True)
+    temp_df1 = pd.DataFrame(np.sort(temp_df1[['target','source']], axis=1)).reset_index(drop=True)
+    temp_df2 = temp_df1[~temp_df1.duplicated()]
+    temp_df2 = temp_df2.rename(columns={0: 'target', 1: 'source'}).reset_index(drop=True)
+    temp_df3 = pd.merge(temp_df2, temp_df)
+    global temp_df4
+    temp_df4 = temp_df3[temp_df3['correlation'] > 0.5]
+    return temp_df4
+
 def prep_sna_domain(data):
-    data_sub = data[data['Link'] != 0]
+    data_sub = data[data['Link'].notnull()]
     data_sub = data_sub[~data_sub['Link'].str.contains(r"facebook.com")]
     data_sub['protocol2'], data_sub['domain2'], data_sub['path2'], data_sub['query2'], data_sub['fragment2'] = zip(*[urlsplit(i) for i in data_sub['Link']])
     data_sub['target'] = data_sub['Facebook Id']
@@ -99,14 +152,64 @@ def prep_batch_from_posts(data, minsize=0, listname='null'):
 def socialnet(data1):
     prepsna = prep_sna_group(data1)
     snaweight = sna_weight(prepsna)
-    global G
     G = nx.from_pandas_edgelist(snaweight, source='source', target='Name', edge_attr=True)
+    return G
+    #return G
+
+def socialnet_pages(data1):
+    prepsna = prep_sna(data1)
+    pairwise_correlation = pairwise_corr(prepsna)
+    G = nx.from_pandas_edgelist(pairwise_correlation, source='source', target='target', edge_attr=True)
     return G
     #return G
 
 def communities_getter(G):
     partition = community_louvain.best_partition(G)
     return partition
+
+def clean_text(data):
+    data = data.lower() #this may trigger a  warning...
+    data = ' '.join([word for word in data.split(' ') if word not in stop_words])
+    #data = ' '.join([word for word in data.split(' ') if word not in stopwords])
+    data = data.encode('ascii', 'ignore').decode()
+    data = re.sub(r'https*\S+', ' ', data)
+    data = re.sub(r'@\S+', ' ', data)
+    data = re.sub(r'#\S+', ' ', data)
+    data = re.sub(r'\'\w+', '', data)
+    data = re.sub('[%s]' % re.escape(string.punctuation), ' ', data)
+    data = re.sub(r'\w*\d+\w*', '', data)
+    data = re.sub(r'\s{2,}', ' ', data)
+    data = ' '.join([word for word in data.split(' ') if word not in stop_words])
+    #data = ' '.join([word for word in data.split(' ') if word not in stopwords])
+    return data
+
+def get_top_n_words(corpus, n=None):
+    vec = CountVectorizer().fit(corpus)
+    bag_of_words = vec.transform(corpus)
+    sum_words = bag_of_words.sum(axis=0)
+    words_freq = [(word, sum_words[0, idx]) for word, idx in vec.vocabulary_.items()]
+    words_freq =sorted(words_freq, key = lambda x: x[1], reverse=True)
+    return words_freq[:n]
+
+def topic_network(data2):
+    data_topics = data2[data2['Message'].notnull()]
+    data_topics['text'] = data_topics['Message'].apply(clean_text)
+    data_topics = data_topics[data_topics['text'].notnull()]
+    data_topics['text'].reset_index(drop=True)
+    common_words = get_top_n_words(data_topics['text'], 20)
+    common_words_df = pd.DataFrame(common_words)
+    return common_words_df
+
+def bigram_network(data2):
+    data_topics = data2[data2['Message'].notnull()]
+    data_topics['text'] = data_topics['Message'].apply(clean_text)
+    data_topics = data_topics[data_topics['text'].notnull()]
+    data_topics['text'].reset_index(drop=True)
+    bigrams = [(x, i.split()[j + 1]) for i in data_topics['text']
+       for j, x in enumerate(i.split()) if j < len(i.split()) - 1]
+    frequency_dist_bigrams = FreqDist(bigrams)
+    common_bigrams_df = pd.DataFrame(frequency_dist_bigrams.most_common(20))
+    return common_bigrams_df
 
 @app.route('/')
 def index():
@@ -164,13 +267,19 @@ def mport():
       uploaded_file = pd.read_csv(request.files['file'])
       data = uploaded_file
       data.columns.values[0] = "Name"
-      data = data.replace(np.nan,0)
+      data['Likes at Posting'] = data['Likes at Posting'].replace(np.nan,0)
+      data['Followers at Posting'] = data['Followers at Posting'].replace(np.nan,0)
       data['Subscribers'] = pd.to_numeric(data['Likes at Posting'] + data['Followers at Posting'])
-      data = data[["Name", "Facebook Id", "Subscribers", "URL", "Link"]]
+      data['Subscribers'] = data['Subscribers'].replace(np.nan,0)
+      data['Subscribers'] = data['Subscribers'].astype(int)
       global data1
-      data1 = pd.DataFrame(data)
-      columns = list(data1.columns.values)
-      values = list(data1.values)
+      data1 = data[["Name", "Facebook Id", "Subscribers", "URL", "Link"]]
+      data1 = pd.DataFrame(data1)
+      global data2
+      data2 = data[["Name", "Subscribers", "Post Created", "Message", "URL", "Link", "Description"]]
+      data2 = pd.DataFrame(data2)
+      columns = list(data2.columns.values)
+      values = list(data2.values)
       return render_template('analyze.html', columns = columns, values = values)
 
 @app.route("/userinfluence", methods=['POST'])
@@ -195,35 +304,104 @@ def domaininfluence():
 
 @app.route("/snagraph", methods=['POST'])
 def snagraph():
-    prepsna = prep_sna_group(data1)
-    snaweight = sna_weight(prepsna)
-    weight_net = snaweight[snaweight['source'].isin(snaweight['source'].value_counts()[snaweight['source'].value_counts() > 1].index)]
-    weight_net = snaweight[snaweight['weight'] > 1]
-    groups = list(weight_net['Name'].unique())
-    shared = list(weight_net['source'].unique())
-    node_labels = dict(zip(groups, groups))
-    shared_labels = dict(zip(shared, shared))
-    G = nx.from_pandas_edgelist(weight_net, source='source', target='Name', edge_attr=True)
-    layout = nx.spring_layout(G, k=10/G.order())
-    dc = nx.degree_centrality(G)
-    hi_degree_targets = [k for k, v in dc.items() if k in groups and v > 0.03]
-    node_labels_top = dict(zip(hi_degree_targets, hi_degree_targets))
-    #color based on degree size leveraging nx spectrum
-    node_color = [20000.0 * G.degree(v) for v in G]
-    #same with size
-    node_size =  [v * 10000 for v in dc.values()]
-    #set plotting area
-    fig = Figure(figsize=(25,25))
-    #plot nodes & edges
-    nx.draw_networkx_nodes(G, layout, node_size=node_size, node_color=node_color)
-    nx.draw_networkx_edges(G, layout, width=1, alpha=0.5, edge_color='gray', style='dashed')
-    #add labels for just the high degree targets
-    nx.draw_networkx_labels(G, layout, labels=node_labels_top, font_size=15)
-    img = BytesIO()
-    fig.savefig(img)
-    #img.seek(0)
-    #data = base64.b64encode(img.getbuffer()).decode("ascii")
-    return send_file(img, mimetype='image/png')
+    global G
+    G = socialnet_pages(data1)
+    pos = nx.fruchterman_reingold_layout(G, k=1/G.order())
+    for n, p in pos.items():
+        G.nodes[n]['pos'] = p
+    edge_x = []
+    edge_y = []
+    for edge in G.edges():
+        x0, y0 = G.nodes[edge[0]]['pos']
+        x1, y1 = G.nodes[edge[1]]['pos']
+        edge_x.append(x0)
+        edge_x.append(x1)
+        edge_x.append(None)
+        edge_y.append(y0)
+        edge_y.append(y1)
+        edge_y.append(None)
+
+    #color_line = []
+    #for corr in G.edges:
+    #    line = G.edges[corr]['correlation']
+    #    color_line.append(line)
+
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=1, color="#888"),
+        hoverinfo='none',
+        mode='lines')
+
+    node_x = []
+    node_y = []
+    for node in G.nodes():
+        x, y = G.nodes[node]['pos']
+        node_x.append(x)
+        node_y.append(y)
+
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        mode='markers',
+        hoverinfo='text',
+        marker=dict(
+            showscale=True,
+        # colorscale options
+        #'Greys' | 'YlGnBu' | 'Greens' | 'YlOrRd' | 'Bluered' | 'RdBu' |
+        #'Reds' | 'Blues' | 'Picnic' | 'Rainbow' | 'Portland' | 'Jet' |
+        #'Hot' | 'Blackbody' | 'Earth' | 'Electric' | 'Viridis' |
+            colorscale='Hot',
+            reversescale=True,
+            color=[],
+            size = 10,
+            #size=node_size,
+            colorbar=dict(
+                thickness=15,
+                title='Connections to Node (More Connections = More Centrality)',
+                xanchor='left',
+                titleside='right'
+                ),
+                line_width=2))
+
+    node_name = []
+    for i in enumerate(G.nodes()):
+        node_name.append(i[1])
+    node_trace.text = node_name
+
+#node_correlation = []
+#for node, nbrsdict in G.adj.items():
+#    for i in nbrsdict.values():
+#        for j in i.values():
+#            node_correlation.append(j)
+
+#node_trace.marker.color = node_correlation
+
+    node_adjacencies = []
+    for node, adjacencies in enumerate(G.adjacency()):
+        node_adjacencies.append(len(adjacencies[1]))
+    #node_text.append('# of connections: '+str(len(adjacencies[1])))
+    node_trace.marker.color = node_adjacencies
+
+    fig = go.Figure(data=[edge_trace, node_trace],
+            layout=go.Layout(
+                title='',
+                titlefont_size=16,
+                showlegend=False,
+                hovermode='closest',
+                margin=dict(b=20,l=5,r=5,t=40),
+                annotations=[ dict(
+                    text="Graph Correlation = Greater Than 0.5",
+                    showarrow=True,
+                    xref="paper", yref="paper",
+                    x=0.005, y=-0.002 ) ],
+                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+                )
+    columns = list(temp_df4.columns.values)
+    values = list(temp_df4.values)
+    graphJSON = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+    return render_template('graph.html', graphJSON = graphJSON, columns = columns, values=values)
+
+
 
 @app.route("/sna", methods=['POST'])
 def sna():
@@ -268,6 +446,17 @@ def exportcom():
         resp.headers["Content-Disposition"] = "attachment; filename=" + listname + ".csv"
         resp.headers["Content-Type"] = "text/csv"
         return resp
+
+@app.route("/topics", methods=['POST'])
+def topics():
+    df = topic_network(data2)
+    fig = px.bar(df, x = 0, y = 1)#color='platform') )
+    graphJSON = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+    df2 = bigram_network(data2)
+    fig2 = px.bar(df2, x = 0, y = 1)
+    graphJSON2 = json.dumps(fig2, cls=plotly.utils.PlotlyJSONEncoder)
+
+    return render_template('topics.html', graphJSON = graphJSON, graphJSON2 = graphJSON2)
 
 if __name__ == '__main__':
     app.run(debug=True)

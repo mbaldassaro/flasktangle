@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Networker{% endblock %}
+
+{% block content %}
+
+  <div class="">
+    <div id="chart" class="chart"></div>
+  </div>
+  <div class="">
+    <div id="chart2" class="chart"></div>
+  </div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script type="text/javascript">
+    var graphs = {{graphJSON | safe}};
+    Plotly.plot('chart',graphs,{});
+
+    var graphs2 = {{graphJSON2 | safe}};
+    Plotly.plot('chart2',graphs2,{});
+</script>
+{% endblock %}
