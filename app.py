@@ -58,6 +58,21 @@ def prep_batch(data, type='pages', minsize=0, listname='null'):
     df2 = df2[['Page or Account URL', 'List']].reset_index(drop=True)
     #return df1[['Page or Account URL', 'List']]
 
+def dupe_links(data):
+    data_links = data[data['Link'].notnull()]
+    data_links = data_links[data_links.duplicated(['Link'], keep=False)]
+    data_links = pd.DataFrame(data_links[['Post Created', 'Name', 'Link']]).sort_values(by=['Link', 'Post Created'], ascending=False)
+    #temp_data_links = pd.DataFrame(np.sort(data_links[['Name','Link']], axis=1)).reset_index(drop=True)
+    #data_links2 = temp_data_links[~temp_data_links.duplicated()]
+    #temp_df2 = temp_df2.rename(columns={0: 'target', 1: 'source'}).reset_index(drop=True)
+    return data_links
+
+def dupe_messages(data):
+    data_messages = data[data['Message'].notnull()]
+    data_messages = data_messages[data_messages.duplicated(['Message'], keep=False)]
+    data_messages = pd.DataFrame(data_messages[['Post Created', 'Name', 'Message']]).sort_values(by=['Message', 'Post Created'], ascending=False)
+    return data_messages
+
 def prep_sna(data):
     data_sub = data[data['Link'].notnull()]
     data_sub = data_sub[data_sub['Link'].str.contains(r"facebook.com")]
@@ -74,7 +89,20 @@ def prep_sna(data):
     data_sub.drop(data_index, inplace=True)
     data_index2 = data_sub[data_sub['source'] == data_sub['Facebook Id']].index
     data_sub.drop(data_index2, inplace=True)
+    return data_sub
 
+def prep_sna_links(data):
+    data_sub = data[data['Link'].notnull()]
+    data_sub = data_sub[data_sub.duplicated(['Link'], keep=False)]
+    data_sub['target'] = data_sub['Name']
+    data_sub = data_sub.rename(columns={'Link': "source"})
+    return data_sub
+
+def prep_sna_messages(data):
+    data_sub = data[data['Message'].notnull()]
+    data_sub = data_sub[data_sub.duplicated(['Message'], keep=False)]
+    data_sub['target'] = data_sub['Name']
+    data_sub = data_sub.rename(columns={'Message': "source"})
     return data_sub
 
 def pairwise_corr(data):
@@ -84,7 +112,7 @@ def pairwise_corr(data):
     data_sub_network_counts = pd.merge(data_sub_network, data_sub_counts)
     vector_matrix = pd.get_dummies(data_sub_network['source']).T.dot(pd.get_dummies(data_sub_network['target'])).clip(0, 1)
     pairwise_cov_matrix = vector_matrix.cov()
-    pairwise_cor = pairwise_cov_matrix.corr(method="pearson", min_periods=5)
+    pairwise_cor = pairwise_cov_matrix.corr(method="pearson", min_periods=20)
     pages = list(pairwise_cov_matrix.columns)
     pairwise_cor_matrix = pd.DataFrame(pairwise_cor, columns = pages, index = pages)
     temp_mat = pairwise_cor_matrix[pairwise_cor_matrix.index.isin(data['Name'])]
@@ -131,10 +159,16 @@ def prep_batch_from_posts(data, minsize=0, listname='null'):
     df = df.drop_duplicates()
     return df[['Page or Account URL', 'List']]
 
-def socialnet(data1):
-    prepsna = prep_sna(data1)
-    snaweight = sna_weight(prepsna)
-    G = nx.from_pandas_edgelist(snaweight, source='source', target='Name', edge_attr=True)
+def socialnet_links(data2):
+    prepsna = prep_sna_links(data2)
+    pairwise_correlation = pairwise_corr(prepsna)
+    G = nx.from_pandas_edgelist(pairwise_correlation, source='source', target='target', edge_attr=True)
+    return G
+
+def socialnet_messages(data2):
+    prepsna = prep_sna_messages(data2)
+    pairwise_correlation = pairwise_corr(prepsna)
+    G = nx.from_pandas_edgelist(pairwise_correlation, source='source', target='target', edge_attr=True)
     return G
     #return G
 
@@ -314,7 +348,6 @@ def domaininfluence():
 
 @app.route("/snagraph", methods=['POST'])
 def snagraph():
-    global G
     G = socialnet_pages(data1)
     pos = nx.fruchterman_reingold_layout(G, k=1/G.order())
     for n, p in pos.items():
@@ -412,17 +445,214 @@ def snagraph():
     graphJSON = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
     return render_template('graph.html', graphJSON = graphJSON, columns = columns, values=values)
 
+@app.route("/linkgraph", methods=['POST'])
+def linkgraph():
+    G = socialnet_links(data2)
+    pos = nx.fruchterman_reingold_layout(G, k=1/G.order())
+    for n, p in pos.items():
+        G.nodes[n]['pos'] = p
+    edge_x = []
+    edge_y = []
+    for edge in G.edges():
+        x0, y0 = G.nodes[edge[0]]['pos']
+        x1, y1 = G.nodes[edge[1]]['pos']
+        edge_x.append(x0)
+        edge_x.append(x1)
+        edge_x.append(None)
+        edge_y.append(y0)
+        edge_y.append(y1)
+        edge_y.append(None)
+
+    #color_line = []
+    #for corr in G.edges:
+    #    line = G.edges[corr]['correlation']
+    #    color_line.append(line)
+
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=1, color="#888"),
+        hoverinfo='none',
+        mode='lines')
+
+    node_x = []
+    node_y = []
+    for node in G.nodes():
+        x, y = G.nodes[node]['pos']
+        node_x.append(x)
+        node_y.append(y)
+
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        #mode='markers',
+        mode='markers+text',
+        hoverinfo='text',
+        marker=dict(
+            showscale=True,
+        # colorscale options
+        #'Greys' | 'YlGnBu' | 'Greens' | 'YlOrRd' | 'Bluered' | 'RdBu' |
+        #'Reds' | 'Blues' | 'Picnic' | 'Rainbow' | 'Portland' | 'Jet' |
+        #'Hot' | 'Blackbody' | 'Earth' | 'Electric' | 'Viridis' |
+            colorscale='Hot',
+            reversescale=True,
+            color=[],
+            size = 10,
+            #size=node_size,
+            colorbar=dict(
+                thickness=15,
+                title='Connections to Node (More Connections = More Centrality)',
+                xanchor='left',
+                titleside='right'
+                ),
+                line_width=2))
+
+    node_name = []
+    for i in enumerate(G.nodes()):
+        node_name.append(i[1])
+    node_trace.text = node_name
+
+#node_correlation = []
+#for node, nbrsdict in G.adj.items():
+#    for i in nbrsdict.values():
+#        for j in i.values():
+#            node_correlation.append(j)
+
+#node_trace.marker.color = node_correlation
+
+    node_adjacencies = []
+    for node, adjacencies in enumerate(G.adjacency()):
+        node_adjacencies.append(len(adjacencies[1]))
+    #node_text.append('# of connections: '+str(len(adjacencies[1])))
+    node_trace.marker.color = node_adjacencies
+
+    fig = go.Figure(data=[edge_trace, node_trace],
+            layout=go.Layout(
+                title='',
+                titlefont_size=16,
+                showlegend=False,
+                hovermode='closest',
+                margin=dict(b=20,l=5,r=5,t=40),
+                annotations=[ dict(
+                    text="Graph Correlation = Greater Than 0.5",
+                    showarrow=True,
+                    xref="paper", yref="paper",
+                    x=0.005, y=-0.002 ) ],
+                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+                )
+    columns = list(temp_df4.columns.values)
+    values = list(temp_df4.values)
+    graphJSON = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+    return render_template('linkgraph.html', graphJSON = graphJSON, columns = columns, values=values)
+
+@app.route("/messagegraph", methods=['POST'])
+def messagegraph():
+    G = socialnet_messages(data2)
+    pos = nx.fruchterman_reingold_layout(G, k=1/G.order())
+    for n, p in pos.items():
+        G.nodes[n]['pos'] = p
+    edge_x = []
+    edge_y = []
+    for edge in G.edges():
+        x0, y0 = G.nodes[edge[0]]['pos']
+        x1, y1 = G.nodes[edge[1]]['pos']
+        edge_x.append(x0)
+        edge_x.append(x1)
+        edge_x.append(None)
+        edge_y.append(y0)
+        edge_y.append(y1)
+        edge_y.append(None)
+
+    #color_line = []
+    #for corr in G.edges:
+    #    line = G.edges[corr]['correlation']
+    #    color_line.append(line)
+
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=1, color="#888"),
+        hoverinfo='none',
+        mode='lines')
+
+    node_x = []
+    node_y = []
+    for node in G.nodes():
+        x, y = G.nodes[node]['pos']
+        node_x.append(x)
+        node_y.append(y)
+
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        #mode='markers',
+        mode='markers+text',
+        hoverinfo='text',
+        marker=dict(
+            showscale=True,
+        # colorscale options
+        #'Greys' | 'YlGnBu' | 'Greens' | 'YlOrRd' | 'Bluered' | 'RdBu' |
+        #'Reds' | 'Blues' | 'Picnic' | 'Rainbow' | 'Portland' | 'Jet' |
+        #'Hot' | 'Blackbody' | 'Earth' | 'Electric' | 'Viridis' |
+            colorscale='Hot',
+            reversescale=True,
+            color=[],
+            size = 10,
+            #size=node_size,
+            colorbar=dict(
+                thickness=15,
+                title='Connections to Node (More Connections = More Centrality)',
+                xanchor='left',
+                titleside='right'
+                ),
+                line_width=2))
+
+    node_name = []
+    for i in enumerate(G.nodes()):
+        node_name.append(i[1])
+    node_trace.text = node_name
+
+#node_correlation = []
+#for node, nbrsdict in G.adj.items():
+#    for i in nbrsdict.values():
+#        for j in i.values():
+#            node_correlation.append(j)
+
+#node_trace.marker.color = node_correlation
+
+    node_adjacencies = []
+    for node, adjacencies in enumerate(G.adjacency()):
+        node_adjacencies.append(len(adjacencies[1]))
+    #node_text.append('# of connections: '+str(len(adjacencies[1])))
+    node_trace.marker.color = node_adjacencies
+
+    fig = go.Figure(data=[edge_trace, node_trace],
+            layout=go.Layout(
+                title='',
+                titlefont_size=16,
+                showlegend=False,
+                hovermode='closest',
+                margin=dict(b=20,l=5,r=5,t=40),
+                annotations=[ dict(
+                    text="Graph Correlation = Greater Than 0.5",
+                    showarrow=True,
+                    xref="paper", yref="paper",
+                    x=0.005, y=-0.002 ) ],
+                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+                )
+    columns = list(temp_df4.columns.values)
+    values = list(temp_df4.values)
+    graphJSON = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
+    return render_template('messagegraph.html', graphJSON = graphJSON, columns = columns, values=values)
 
 
 @app.route("/sna", methods=['POST'])
 def sna():
-    global G
-    G = socialnet(data1)
+    global G2
+    G2 = socialnet_pages(data1)
     return render_template('communitysearching.html')
 
 @app.route("/communitydetected", methods=['GET', 'POST'])
 def communitydetected():
-    partition = communities_getter(G)
+    partition = communities_getter(G2)
     global communities_detected
     communities_detected = pd.DataFrame(partition.keys(), partition.values()).reset_index(level=[0])
     communities_detected.columns = ['id', 'Name']
@@ -457,6 +687,21 @@ def exportcom():
         resp.headers["Content-Disposition"] = "attachment; filename=" + listname + ".csv"
         resp.headers["Content-Type"] = "text/csv"
         return resp
+
+@app.route('/dupelinks', methods=['POST'])
+def dupelinks():
+    dflinks = dupe_links(data2)
+    columns = list(dflinks.columns.values)
+    values = list(dflinks.values)
+    return render_template('dupelinks.html', columns = columns, values = values)
+
+@app.route('/dupemessages', methods=['POST'])
+def dupemessages():
+    dfmessages = dupe_messages(data2)
+    columns = list(dfmessages.columns.values)
+    values = list(dfmessages.values)
+    return render_template('dupelinks.html', columns = columns, values = values)
+
 
 @app.route("/topics", methods=['POST'])
 def topics():

@@ -11,11 +11,23 @@
     <form method="POST" action="{{ url_for('domaininfluence')}}">
         <button type="submit" class="btn btn-primary">Who's Most Influential (domains)?</button></p>
     </form>
+    <form method="POST" action="{{ url_for('dupelinks')}}">
+        <button type="submit" class="btn btn-primary">Find Duplicate Links</button></p>
+    </form>
+    <form method="POST" action="{{ url_for('dupemessages')}}">
+        <button type="submit" class="btn btn-primary">Find Duplicate Messages</button></p>
+    </form>
     <form method="POST" action="{{ url_for('sna')}}">
         <button type="submit" class="btn btn-primary">Run Social Network Analysis</button></p>
     </form>
     <form method="POST" action="{{ url_for('snagraph')}}">
         <button type="submit" class="btn btn-primary">Run Coordinated Behavior Analysis</button></p>
+    </form>
+    <form method="POST" action="{{ url_for('linkgraph')}}">
+        <button type="submit" class="btn btn-primary">Run Coordinated Link Analysis</button></p>
+    </form>
+    <form method="POST" action="{{ url_for('messagegraph')}}">
+        <button type="submit" class="btn btn-primary">Run Coordinated Message Analysis</button></p>
     </form>
     <form method="POST" action="{{ url_for('topics')}}">
         <button type="submit" class="btn btn-primary">Run Topic Analysis</button></p>
