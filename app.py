@@ -22,7 +22,6 @@ import string
 import nltk
 import nltk.corpus
 from nltk.corpus import stopwords
-#stop_words = set(stopwords.words('english'))
 from nltk.tokenize import word_tokenize
 from nltk.probability import FreqDist
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer, TfidfTransformer
@@ -33,7 +32,6 @@ app = Flask(__name__)
 Bootstrap(app)
 #app.secret_key = os.urandom(24)
 #q = Queue(connection=conn)
-
 def get_links(token, link, platforms='facebook', count=1000):
     api_url_base = "https://api.crowdtangle.com/links?token="
     link_pre = '&link='
@@ -60,38 +58,23 @@ def prep_batch(data, type='pages', minsize=0, listname='null'):
     df2 = df2[['Page or Account URL', 'List']].reset_index(drop=True)
     #return df1[['Page or Account URL', 'List']]
 
-def prep_sna_group(data):
-    #data_sub = data[data['Link'] != 0]
-    data_sub = data[data['Link'].notnull()]
-    data_sub = data_sub[~data_sub['Link'].str.contains(r"photo.php")]
-    data_sub['Link'] = data_sub['Link'].replace(to_replace=r"/groups", value='', regex=True)
-    data_sub['Link'] = data_sub['Link'].replace(to_replace=r"/photos", value='', regex=True)
-    data_sub['Link'] = data_sub['Link'].replace(to_replace=r"\?", value='', regex=True)
-    data_sub['Link'] = data_sub['Link'].replace(to_replace=r"fbid=", value='', regex=True)
-    data_sub['Link'] = data_sub['Link'].replace(to_replace=r"\&.*", value='/', regex=True)
-    data_sub['protocol2'], data_sub['domain2'], data_sub['path2'], data_sub['query2'], data_sub['fragment2'] = zip(*[urlsplit(i) for i in data_sub['Link']])
-    data_sub = data_sub[data_sub['domain2'] == 'www.facebook.com']
-    data_sub['target'] = data_sub['Facebook Id']
-    data_sub['source'] = data_sub['path2'].str.extract(r'/\s*([^\/]*)\s*\/', expand=False)
-    data_sub = data_sub[pd.notnull(data_sub['source'])].reset_index(drop=True)
-    return data_sub
-
 def prep_sna(data):
     data_sub = data[data['Link'].notnull()]
     data_sub = data_sub[data_sub['Link'].str.contains(r"facebook.com")]
     data_sub = data_sub[~data_sub['Link'].str.contains(r"photo.php")]
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"/groups", value='', regex=True)
-    #find + remove '/photos' in link
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"/photos", value='', regex=True)
-#find + remove "?" in link
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"\?", value='', regex=True)
-    #find + remove "fbid=" in link
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"fbid=", value='', regex=True)
-    #find + remove '&" + everything afterwards in link
     data_sub['Link'] = data_sub['Link'].replace(to_replace=r"\&.*", value='/', regex=True)
     data_sub['protocol2'], data_sub['domain2'], data_sub['path2'], data_sub['query2'], data_sub['fragment2'] = zip(*[urlsplit(i) for i in data_sub['Link']])
     data_sub['target'] = data_sub['Name']
     data_sub['source'] = data_sub['path2'].str.extract(r'/\s*([^\/]*)\s*\/', expand=False)
+    data_index = data_sub[data_sub['source'] == data_sub['User Name']].index
+    data_sub.drop(data_index, inplace=True)
+    data_index2 = data_sub[data_sub['source'] == data_sub['Facebook Id']].index
+    data_sub.drop(data_index2, inplace=True)
+
     return data_sub
 
 def pairwise_corr(data):
@@ -143,17 +126,13 @@ def prep_batch_from_posts(data, minsize=0, listname='null'):
     #remove everything starting w/permalink and after
     df['URL'] = df['URL'].replace(to_replace=r"/permalink.*", value='/', regex=True)
     df = df.groupby(['Name', 'URL']).size().to_frame().reset_index().sort_values(by=0, ascending=False)
-    #if type == 'pages':
-    #    df1 = df.loc[((df['accountType'] == 'facebook_page') & (df[0] > minsize))]
-    #else: #need to fix the else to set to 'groups' as an option -- not a big deal right now
-    #    df1 = df.loc[((df['accountType'] == 'facebook_group') & (df[0] > minsize))]
     df['List'] = listname
     df = df.rename(columns={"URL": "Page or Account URL"}).reset_index(drop=True)
     df = df.drop_duplicates()
     return df[['Page or Account URL', 'List']]
 
 def socialnet(data1):
-    prepsna = prep_sna_group(data1)
+    prepsna = prep_sna(data1)
     snaweight = sna_weight(prepsna)
     G = nx.from_pandas_edgelist(snaweight, source='source', target='Name', edge_attr=True)
     return G
@@ -171,6 +150,7 @@ def communities_getter(G):
     return partition
 
 def clean_text(data):
+    stop_words = set(stopwords.words('english'))
     data = data.lower() #this may trigger a  warning...
     data = ' '.join([word for word in data.split(' ') if word not in stop_words])
     #data = ' '.join([word for word in data.split(' ') if word not in stopwords])
@@ -213,6 +193,33 @@ def bigram_network(data2):
     frequency_dist_bigrams = FreqDist(bigrams)
     common_bigrams_df = pd.DataFrame(frequency_dist_bigrams.most_common(20))
     return common_bigrams_df
+
+def word_matrix(data):
+    vectorizer = CountVectorizer(analyzer='word',
+                              token_pattern=r'\b[a-zA-Z]{3,}\b',
+                              ngram_range=(1, 1),
+                              min_df=10)
+    count_vectorized = vectorizer.fit_transform(data['text'])
+    tfidf_transformer = TfidfTransformer(smooth_idf=True, use_idf=True)
+    vectorized = tfidf_transformer.fit_transform(count_vectorized)
+    vector_matrix = pd.DataFrame(vectorized.toarray(),
+             index=['message '+str(i)
+                    for i in range(1, 1+len(data['text']))],
+             columns=vectorizer.get_feature_names())
+
+def word_pairwise_corr(vector_matrix):
+    pairwise_cov_matrix = vector_matrix.cov()
+    pairwise_cor = np.corrcoef(pairwise_cov_matrix)
+    words = list(pairwise_cov_matrix.columns)
+    pairwise_cor_matrix = pd.DataFrame(pairwise_cor, columns = words, index = words)
+
+def corr_network(matrix, topics, words):
+    temp_mat = matrix[matrix.index.isin(topics)]
+    temp_df = pd.DataFrame(temp_mat.T.unstack().reset_index(name='correlation').sort_values('correlation', ascending=False))
+    temp_df = temp_df.rename(columns={"level_0": 'topic', "level_1": 'word'})
+    temp_df = temp_df.sort_values(['topic','correlation'], ascending=False).reset_index(drop=True)
+    temp_df = temp_df[temp_df['topic'] != temp_df['word']]
+    return temp_df.groupby(['topic'],as_index=False).apply(lambda x: x.nlargest(words, 'correlation'))
 
 @app.route('/')
 def index():
@@ -276,7 +283,7 @@ def mport():
       data['Subscribers'] = data['Subscribers'].replace(np.nan,0)
       data['Subscribers'] = data['Subscribers'].astype(int)
       global data1
-      data1 = data[["Name", "Facebook Id", "Subscribers", "URL", "Link"]]
+      data1 = data[["Name", "User Name", "Facebook Id", "Subscribers", "URL", "Link"]]
       data1 = pd.DataFrame(data1)
       global data2
       data2 = data[["Name", "Subscribers", "Post Created", "Message", "URL", "Link", "Description"]]
@@ -287,7 +294,7 @@ def mport():
 
 @app.route("/userinfluence", methods=['POST'])
 def userinfluence():
-    prepsna = prep_sna_group(data1)
+    prepsna = prep_sna(data1)
     snaweight = sna_weight(prepsna)
     weight = snaweight.groupby('source').sum().sort_values(by='weight', ascending=False).reset_index().head(50)
     weight = weight[['source', 'weight']]
@@ -346,8 +353,6 @@ def snagraph():
         x=node_x, y=node_y,
         #mode='markers',
         mode='markers+text',
-        textfont=dict(size=10,color='black'),
-        textposition="top right",
         hoverinfo='text',
         marker=dict(
             showscale=True,
@@ -456,6 +461,9 @@ def exportcom():
 @app.route("/topics", methods=['POST'])
 def topics():
     df = topic_network(data2)
+    matrix = word_matrix(df)
+    word_pairwise_matrix = word_pairwise_corr(matrix)
+    pairwise_cor_network = corr_network(pairwise_cor_matrix, common_words_df[0], 10)
     fig = px.bar(df, x = 0, y = 1)#color='platform') )
     graphJSON = json.dumps(fig, cls=plotly.utils.PlotlyJSONEncoder)
     df2 = bigram_network(data2)
