@@ -93,14 +93,14 @@ def prep_sna(data):
 
 def prep_sna_links(data):
     data_sub = data[data['Link'].notnull()]
-    data_sub = data_sub[data_sub.duplicated(['Link'], keep=False)]
+    #data_sub = data_sub[data_sub.duplicated(['Link'], keep=False)]
     data_sub['target'] = data_sub['Name']
     data_sub = data_sub.rename(columns={'Link': "source"})
     return data_sub
 
 def prep_sna_messages(data):
     data_sub = data[data['Message'].notnull()]
-    data_sub = data_sub[data_sub.duplicated(['Message'], keep=False)]
+    #data_sub = data_sub[data_sub.duplicated(['Message'], keep=False)]
     data_sub['target'] = data_sub['Name']
     data_sub = data_sub.rename(columns={'Message': "source"})
     return data_sub
@@ -112,7 +112,7 @@ def pairwise_corr(data):
     data_sub_network_counts = pd.merge(data_sub_network, data_sub_counts)
     vector_matrix = pd.get_dummies(data_sub_network['source']).T.dot(pd.get_dummies(data_sub_network['target'])).clip(0, 1)
     pairwise_cov_matrix = vector_matrix.cov()
-    pairwise_cor = pairwise_cov_matrix.corr(method="pearson", min_periods=20)
+    pairwise_cor = pairwise_cov_matrix.corr(method="pearson", min_periods=1)
     pages = list(pairwise_cov_matrix.columns)
     pairwise_cor_matrix = pd.DataFrame(pairwise_cor, columns = pages, index = pages)
     temp_mat = pairwise_cor_matrix[pairwise_cor_matrix.index.isin(data['Name'])]
